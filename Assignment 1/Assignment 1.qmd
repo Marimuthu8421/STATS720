@@ -1,0 +1,520 @@
+---
+title: "Assignment 1 - STATS 720"
+format: pdf
+editor: visual
+---
+
+## **Question 1: Olympic medals**
+
+Analyze the Olympic data set found [here](https://github.com/bbolker/stats720/blob/main/data/olymp1.csv) (raw download from [here](https://raw.githubusercontent.com/bbolker/stats720/main/data/olymp1.csv)). The variables are:
+
+-   `team`: (approximately) country
+
+-   `year`
+
+-   `medal` (bronze/gold/silver)
+
+-   `n`: medal count
+
+-   `gdp`: GDP in const 2015 US\$ (billions)
+
+-   `pop`: population size (millions)
+
+a.  State which possible predictor variables you're going to include; justify your choice (refer to Harrell chapter 4 for rules of thumb about appropriate numbers of predictors).
+
+    -   decide whether you're going to predict gold medals only, total medal count, or some weighted average of medals (e.g. `4*G+5*S+2*B`).
+
+### Load the data
+
+```{r}
+
+library(RCurl)
+library(readr)
+
+urlfile <- "https://raw.githubusercontent.com/bbolker/stats720/main/data/olymp1.csv"
+
+data<-read.csv(url(urlfile))
+
+head(data)
+str(data)
+
+#View(data)
+```
+
+## a. State which possible predictor variables you're going to include; justify your choice (refer to Harrell chapter 4 for rules of thumb about appropriate numbers of predictors).
+
+```{r,warning=FALSE,message=FALSE}
+library(tidyverse)
+
+wt_data<-data |> 
+    mutate(across(medal, ~ factor(., levels = c("Bronze", "Silver", "Gold")))) |>
+    group_by(team, year) |>
+    arrange(medal) |> 
+    summarise(n_wt = sum(c(1,2,4)*n)/4,
+              gdp = mean(gdp),
+              pop = mean(pop),
+              .groups = "drop")|> 
+    na.omit()
+
+#View(wt_data)
+summary(wt_data)
+```
+
+### Descriptive statistics for predictors
+
+```{r}
+library(ggplot2) 
+library(GGally)  
+
+# Pairs plot between GDp and population
+ggpairs(wt_data[,4:5])   
+
+#Histogram of GDP
+ggplot(wt_data, aes(gdp)) +   
+  geom_histogram(aes(y=..density..)) +  # scale histogram y   
+  geom_density(col = "red")+   
+  labs(x = "GDP in const 2015 US$ (billions)")  
+
+# Histogram of Population
+ggplot(wt_data, aes(pop)) +   
+  geom_histogram(aes(y=..density..)) +  # scale histogram y   geom_density(col = "red")+   
+  labs(x = "Population size (millions)") 
+```
+
+### Predictors:
+
+To predict the medals, I am going to use Year, GDP, and population of the country. Natural spline with 5 df is used for GDP and Population. I also expect the interaction between GDP and year also population and Year. Since the GDP and population change over time. Total sample size is 541 which satisfy the Harrell rule of thumb of co-variate and sample size ratio 1:15
+
+### Decide whether you're going to predict gold medals only, total medal count, or some weighted average of medals (e.g. `4*G+5*S+2*B`). You can derive these different responses as follows:
+
+**Outcome:**
+
+In this analysis, I use weighted average of medals as the outcome, because gold, silver, and bronze medals have different values of importance.
+
+## b. State the units of the response variable and of each predictor variable you plan to include; for each variable, state what you would consider as a reasonable threshold for a small change in that variable, *or* for a small slope (regression coefficient)
+
+### Histogram of Weighted average of medal
+
+```{r}
+ggplot(wt_data, aes(n_wt)) +
+  geom_histogram(aes(y=..density..)) +  # scale histogram y
+  geom_density(col = "red")+
+  labs(x = "Wegited Average of Medals")
+```
+
+As the outcome is skewed, log transformation is used for in the linear model. And the outcome doesn't have any units.
+
+-   GDP is consider US\$ (billions) and
+
+-   Population size is consider in millions
+
+```{r}
+
+wt_data$ln.n_wt<-log(wt_data$n_wt+0.5)
+
+ggplot(wt_data, aes(ln.n_wt)) +
+  geom_histogram(aes(y=..density..)) +  # scale histogram y
+  geom_density(col = "red")+
+  labs(x = "Wegited Average of Medals (log scale)")
+```
+
+### Descriptive Statistics
+
+```{r}
+cat("Summary of weighted number of medal:","\n")
+summary(wt_data$n_wt)
+
+cat("Summary of weighted number of medal (log scale):","\n")
+summary(wt_data$ln.n_wt)
+
+cat("Summary of GDP:","\n")
+summary(wt_data$gdp)
+
+cat("Summary of Population:","\n")
+summary(wt_data$pop)
+```
+
+## c. Fit Model
+
+### Linear Model
+
+```{r}
+library(splines)
+
+Mod<-lm(ln.n_wt~year*ns(gdp, df=5)+year*ns(pop, df=5),wt_data)
+
+summary(Mod)
+```
+
+## d. Diagnose the model 
+
+### Performance plot
+
+```{r}
+#par(mfrow=c(2,2))
+plot(Mod)
+
+```
+
+### **Interpretation**:
+
+**Linearity Assumption:**
+
+As there is no clear pattern in the scatter plot of fitted values vs Residual. Therefore linearity assumption is satisfied.
+
+**Normality:**
+
+From the Q-Q plot, we can see that the points at the lower tail are slightly deviates from the diagonal line. However, in my opinion the normality assumption is satisfied approximately.
+
+**Homoscedasticity:**
+
+Scale-Location plot is dense upto 3 and then the spread is wider. Also, the red line is not horizontal until 3. It suggests that the homoscedasticity assumption is violated slightly.
+
+**Residual vs Leverage:**
+
+The plot depicts that there is no influential cases since all the points are inside the boundary.
+
+```{r}
+
+library(performance)
+
+check_model(Mod,panel=T,check='all',title_size=5,base_size=5,axis_title_size=5)
+```
+
+Performance plot is also says the same story of linearity, homogeneity of variance, normality of residuals, and influential points. In addition to that, The posterior predictive check plot illustrate observed and predicted density curve from the model which means, there is a slight deviation in the curve when it reaches the peak. VIF plot illustrates that there is a high collinearity among the predictors. There I drop both interaction term from the model.
+
+### **DHARMa**
+
+```{r}
+
+library(DHARMa)
+
+simulationOutput <- simulateResiduals(fittedModel = Mod)
+
+plot(simulationOutput)
+```
+
+The Q-Q residual plot suggests that the model satisfies the normality of residual, homogeneity assumption and there is no influential points.
+
+The residual vs predicted plot suggests that more residuals are in the lower tail of the distribution then we expect.
+
+## e. If the model has any problems, make adjustments
+
+To correct multi-colinearity, I drop the interaction term. In order to compare the most important predictor, I would scale the predictors and make unitless.
+
+### Scale
+
+```{r}
+
+wt_data$s.gdp<-scale(wt_data$gdp,center = FALSE,scale = TRUE)
+
+wt_data$s.pop<-scale(wt_data$pop,center = FALSE,scale = TRUE)
+
+```
+
+### Fitting the Model
+
+```{r}
+
+Mod.Scaled<-lm(ln.n_wt~year+ns(s.gdp, df=5)+ns(s.pop, df=5),wt_data)
+
+summary(Mod.Scaled)
+```
+
+### Plots
+
+```{r}
+
+plot(Mod.Scaled)
+```
+
+```{r}
+check_model(Mod.Scaled,panel=T,check='all',title_size=5,base_size=5,axis_title_size=5)
+```
+
+From the VIF plot, we can see that there is no collinear problem among predictors.
+
+### DHARMa
+
+```{r}
+
+simulationOutput.scaled <- simulateResiduals(fittedModel = Mod.Scaled)
+
+plot(simulationOutput.scaled)
+```
+
+The Q-Q residual plot suggests that the model satisfies the homogeneity assumption and there is no influential points. The residual vs predicted plot suggests that more residuals are in the lower tail of the distribution then we expect.
+
+Since the sample size is large it can detect a small deviation of the normality. KS test is sensitive to sample size.
+
+## f. Show a coefficient plot of the results
+
+```{r}
+
+library(dotwhisker)
+
+dwplot(Mod.Scaled)
+```
+
+From the plot we can that, GDP has non-linear effect on average number of medals. One year increase, reduces the average number of medals by 1% (exp(-0.01)). As GDP and population are included as spline term, the regression coefficients can't be interpreted directly.
+
+## g. Show an effects plot (predicted values or effects
+
+```{r}
+
+library(effects)
+
+#effects::allEffects(Mod)
+
+effect.plot<-effects::allEffects(Mod.Scaled)
+
+plot(effect.plot)
+```
+
+The marginal effect plots show that the year and population has negative effect on average medals, wehereas GDP has quadratic effect.
+
+#### Estimate Marginal means
+
+```{r}
+
+library(emmeans)
+
+plot(effect("year",Mod.Scaled))
+
+plot(effect("s.gdp",Mod.Scaled))
+
+plot(effect("s.pop",Mod.Scaled))
+```
+
+### Test for non-linearity
+
+**GDP** $$
+H_0: \beta_3=\beta_4=\beta_5=\beta_6 
+$$
+
+```{r}
+
+library(car)
+
+linearHypothesis(Mod, names(coef(Mod))[4:7])
+```
+
+ANOVA/F test suggests that the full model is has significant lower RSS, means natural spline of GDP has non-linear effect on log transformed weighted average medal.
+
+**Population**
+
+$$
+H_0: \beta_9=\beta_{10}=\beta_{11}=\beta_{12} 
+$$
+
+```{r}
+
+linearHypothesis(Mod, names(coef(Mod))[9:12])
+```
+
+ANOVA/F test suggests that the full model is has significant lower RSS, means natural spline of population has non-linear effect on log transformed weighted average medal.
+
+## 
+
+## **Question 2: contrasts**
+
+Suppose we have an experiment with four levels: control (C) and three increasing levels of the treatment (I, II, III). We are interested in:
+
+-   the difference between the control and the *average* of the treatment levels
+
+-   *successive differences* (I vs II, II vs III) among the non-control treatments.
+
+Construct a set of contrasts to quantify these effects. Test your results by making up a minimal data frame with just one observation per treatment. Fit the linear model and show that the coefficients match what you intended
+
+```{r}
+
+trt<-c("control","I","II","III")
+mu<-c(0.5,0.9,1.2,0.7)
+
+set.seed(100)
+y<-rnorm(length(trt),mu,0.5)
+
+da<-data.frame(y=y,x=trt)
+da
+
+
+mod<-lm(y~as.factor(x),da)
+mod
+
+Mean.eff<-predict(mod,da)
+
+# 3 contrasts:
+# 1. the difference between the control and the average of the treatment levels
+# 2. difference of I vs II 
+# 3. difference II vs III among the non-control treatments
+
+
+
+C.inv<-matrix(c(1,-1/3,-1/3,-1/3,
+              0,1,-1,0,
+              0,0,1,-1),
+              byrow = T,nrow = 3)
+C.inv
+
+C.inv%*%Mean.eff
+
+
+# C matrix with inercept
+
+C<-matrix(c(1,1,1,1,
+             1,-1/3,-1/3,-1/3,
+              0,1,-1,0,
+              0,0,1,-1),
+              byrow = F,nrow = 4)
+
+cat("C matrix","\n")
+C
+
+library(MASS)
+
+# C-inverse matrix
+
+cat("C-inverse matrix","\n")
+Contrast.mat<-fractions(solve(C))
+Contrast.mat[,-1]
+```
+
+## **Question 3: simulations to evaluate the effects of model misspecification**
+
+### Function to Simulate data from t-distribution
+
+```{r}
+
+sim_fun <- function(n = 100, slope = 1, sd = 1, intercept = 0,df=2) {
+    x <- runif(n)
+    mu<-intercept + slope * x
+    #y <- rnorm(n, intercept + slope * x, sd = sd)
+    y<-mu+sd*rt(n, df)
+    data.frame(x, y)
+}
+
+#sim<-sim_fun (n = 100, slope = 1, sd = 1, intercept = 0)
+
+```
+
+### Evaluate coverage for model mis-specification
+
+```{r}
+
+Model_misp<-function(n=100,t.df=2,slope=1,sd=1,intercept=0,B=1000,alpha=0.05)
+  {
+  
+  out<-data.frame(matrix(0,nrow=B,ncol = 3))
+  colnames(out)<-c("slope","p.val","Coverage")
+  
+  
+  for(i in 1:B)
+  {
+    #cat("Iteration number is:",i,"\n")
+    
+  sim.dat<-sim_fun (n = n, slope = slope, sd = sd, intercept = intercept,df=t.df)
+  
+  head(sim.dat)
+  
+  lm.mod<-lm(y~x,sim.dat)
+  out$slope[i] <- coef(lm.mod)[2]
+  out$p.val[i]<-coef(summary(lm.mod))[2, "Pr(>|t|)"]
+  
+  between <- function(a, b) (b[1] < a & a < b[2]);
+  out$Coverage[i]<- between(slope, confint(lm.mod)[2,])
+  }
+  
+  Bias<-mean(out$slope-slope)
+  SE<-sd(out$slope)
+  RMSE<-sqrt(mean((out$slope-slope)^2))
+  
+  Power<-mean(out$p.val<alpha)
+  Coverage<-mean(out$Coverage)
+  
+  #Metrics<-list(Bias=Bias,SE=SE,RMSE=RMSE,Power=Power,Coverage=Coverage)
+  
+  return(results=list(Bias=Bias,SE=SE,RMSE=RMSE,Power=Power,Coverage=Coverage,Estimates=out))
+  
+}
+
+res<-Model_misp(n=100,t.df=2,slope=1,sd=1,intercept=0,B=1000,alpha=0.05)
+
+n<-seq(10,100,by=10)
+df<-seq(2, 50, by = 6)
+
+results<-expand.grid(n=n,df=df)
+
+
+for(i in 1:nrow(results)){
+  
+     set.seed(1000+i)
+     res<-Model_misp(n=results$n[i],t.df=results$df[i],slope=1,sd=1,intercept=0,B=1000,alpha=0.05)
+     
+results$Bias[i]<-res$Bias
+results$SE[i]<-res$SE
+results$RMSE[i]<-res$RMSE
+results$Power[i]<-res$Power
+results$Coverage[i]<-res$Coverage
+
+}
+
+results
+#View(results)
+```
+
+### Plot - Results
+
+#### Bias
+
+```{r}
+
+
+#cols <- c("gray", "gray", "gray","gray", "gray", "gray","gray", "gray", "blue")
+
+ggplot(results, aes(x=n, y=Bias)) + 
+  geom_line(aes(color=as.factor(df)),linewidth =1)+
+  guides(color = guide_legend(title = "DF")) #+
+   #scale_color_manual(values = cols)
+
+```
+
+Bias plot suggests that as sample size increases the bias converges to zero irrespective of the df.
+
+#### RMSE
+
+```{r}
+#cols <- c("gray", "gray", "gray","gray", "gray", "gray","gray", "gray", "blue")
+
+ggplot(results, aes(x=n, y=RMSE)) + 
+  geom_line(aes(color=as.factor(df)),linewidth =1)+
+  guides(color = guide_legend(title = "DF"))#+
+   #scale_color_manual(values = cols)
+
+```
+
+RMSE depicts that except df=2, RMSE are almost eqal irrespective of the df.
+
+#### Power
+
+```{r}
+cols <- c("gray", "gray", "gray","gray", "gray", "gray","gray", "gray", "blue")
+
+ggplot(results, aes(x=n, y=Power)) + 
+  geom_line(aes(color=as.factor(df)),linewidth =1)+
+  guides(color = guide_legend(title = "DF"))
+```
+
+The plot suggest that as sample size and df increases the power increases.
+
+#### Coverage
+
+```{r}
+cols <- c("gray", "gray", "gray","gray", "gray", "gray","gray", "gray", "blue")
+
+ggplot(results, aes(x=n, y=Coverage)) + 
+  geom_line(aes(color=as.factor(df)),linewidth =1)+
+  guides(color = guide_legend(title = "DF"))
+
+```
+
+The coverage is highly oscillating irrespective of df.
