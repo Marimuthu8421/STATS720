@@ -4,42 +4,36 @@ format: pdf
 editor: visual
 ---
 
-## **Question 1: Olympic medals**
+**BMB**: file names with spaces are a pain, I renamed this ...
+
+## Question 1: Olympic medals
 
 Analyze the Olympic data set found [here](https://github.com/bbolker/stats720/blob/main/data/olymp1.csv) (raw download from [here](https://raw.githubusercontent.com/bbolker/stats720/main/data/olymp1.csv)). The variables are:
 
 -   `team`: (approximately) country
-
 -   `year`
-
 -   `medal` (bronze/gold/silver)
-
 -   `n`: medal count
-
 -   `gdp`: GDP in const 2015 US\$ (billions)
-
 -   `pop`: population size (millions)
 
 a.  State which possible predictor variables you're going to include; justify your choice (refer to Harrell chapter 4 for rules of thumb about appropriate numbers of predictors).
-
     -   decide whether you're going to predict gold medals only, total medal count, or some weighted average of medals (e.g. `4*G+5*S+2*B`).
 
 ### Load the data
 
 ```{r}
-
-library(RCurl)
+library(RCurl) ## why do we need this?
 library(readr)
-
 urlfile <- "https://raw.githubusercontent.com/bbolker/stats720/main/data/olymp1.csv"
-
+## don't need url()
 data<-read.csv(url(urlfile))
-
 head(data)
 str(data)
-
 #View(data)
 ```
+
+**BMB**: prefer fewer blank lines in code
 
 ## a. State which possible predictor variables you're going to include; justify your choice (refer to Harrell chapter 4 for rules of thumb about appropriate numbers of predictors).
 
@@ -68,6 +62,7 @@ library(GGally)
 
 # Pairs plot between GDp and population
 ggpairs(wt_data[,4:5])   
+## BMB: do we need a pairs plot for only two variables?
 
 #Histogram of GDP
 ggplot(wt_data, aes(gdp)) +   
@@ -85,6 +80,8 @@ ggplot(wt_data, aes(pop)) +
 
 To predict the medals, I am going to use Year, GDP, and population of the country. Natural spline with 5 df is used for GDP and Population. I also expect the interaction between GDP and year also population and Year. Since the GDP and population change over time. Total sample size is 541 which satisfy the Harrell rule of thumb of co-variate and sample size ratio 1:15
 
+**BMB**: why 5 df?
+
 ### Decide whether you're going to predict gold medals only, total medal count, or some weighted average of medals (e.g. `4*G+5*S+2*B`). You can derive these different responses as follows:
 
 **Outcome:**
@@ -99,24 +96,26 @@ In this analysis, I use weighted average of medals as the outcome, because gold,
 ggplot(wt_data, aes(n_wt)) +
   geom_histogram(aes(y=..density..)) +  # scale histogram y
   geom_density(col = "red")+
-  labs(x = "Wegited Average of Medals")
+  labs(x = "Weighted Average of Medals")
 ```
 
 As the outcome is skewed, log transformation is used for in the linear model. And the outcome doesn't have any units.
 
--   GDP is consider US\$ (billions) and
+**BMB**: **Please** don't base your decision to transform on the *marginal* distribution of the response, that's meaningless. (You might still decide that you wanted to log transform the response, for interpretability or to improve validity of assumptions, but you should never say "the marginal distribution is skewed, therefore I will transform"
 
--   Population size is consider in millions
+-   GDP is considered in US$ (billions) and
+-   Population size is considered in millions
 
 ```{r}
-
 wt_data$ln.n_wt<-log(wt_data$n_wt+0.5)
 
 ggplot(wt_data, aes(ln.n_wt)) +
   geom_histogram(aes(y=..density..)) +  # scale histogram y
   geom_density(col = "red")+
-  labs(x = "Wegited Average of Medals (log scale)")
+  labs(x = "Weighted Average of Medals (log scale)")
 ```
+
+**BMB**: try to resolve warnings whenever possible
 
 ### Descriptive Statistics
 
@@ -124,7 +123,7 @@ ggplot(wt_data, aes(ln.n_wt)) +
 cat("Summary of weighted number of medal:","\n")
 summary(wt_data$n_wt)
 
-cat("Summary of weighted number of medal (log scale):","\n")
+cat("Summary of weighted number of medals (log scale):","\n")
 summary(wt_data$ln.n_wt)
 
 cat("Summary of GDP:","\n")
@@ -133,6 +132,8 @@ summary(wt_data$gdp)
 cat("Summary of Population:","\n")
 summary(wt_data$pop)
 ```
+
+**BMB**: this is all harmless, but what conclusions are you drawing/why are you doing it?
 
 ## c. Fit Model
 
@@ -145,6 +146,8 @@ Mod<-lm(ln.n_wt~year*ns(gdp, df=5)+year*ns(pop, df=5),wt_data)
 
 summary(Mod)
 ```
+
+
 
 ## d. Diagnose the model 
 
@@ -170,6 +173,8 @@ From the Q-Q plot, we can see that the points at the lower tail are slightly dev
 
 Scale-Location plot is dense upto 3 and then the spread is wider. Also, the red line is not horizontal until 3. It suggests that the homoscedasticity assumption is violated slightly.
 
+**BMB**: patterns along the x-axis are irrelevant. The pattern of the trend line is important.
+
 **Residual vs Leverage:**
 
 The plot depicts that there is no influential cases since all the points are inside the boundary.
@@ -182,6 +187,8 @@ check_model(Mod,panel=T,check='all',title_size=5,base_size=5,axis_title_size=5)
 ```
 
 Performance plot is also says the same story of linearity, homogeneity of variance, normality of residuals, and influential points. In addition to that, The posterior predictive check plot illustrate observed and predicted density curve from the model which means, there is a slight deviation in the curve when it reaches the peak. VIF plot illustrates that there is a high collinearity among the predictors. There I drop both interaction term from the model.
+
+**BMB**: I would argue against this. (By the way, why do both `plot()` and `performance::check_model()` ?)
 
 ### **DHARMa**
 
@@ -197,6 +204,8 @@ plot(simulationOutput)
 The Q-Q residual plot suggests that the model satisfies the normality of residual, homogeneity assumption and there is no influential points.
 
 The residual vs predicted plot suggests that more residuals are in the lower tail of the distribution then we expect.
+
+**BMB**: it's not the distribution as much as the trend (the bottom end is badly modeled because this is where the data look most discreted)
 
 ## e. If the model has any problems, make adjustments
 
@@ -258,7 +267,9 @@ dwplot(Mod.Scaled)
 
 From the plot we can that, GDP has non-linear effect on average number of medals. One year increase, reduces the average number of medals by 1% (exp(-0.01)). As GDP and population are included as spline term, the regression coefficients can't be interpreted directly.
 
-## g. Show an effects plot (predicted values or effects
+**BMB**: good.
+
+## g. Show an effects plot (predicted values or effects)
 
 ```{r}
 
@@ -271,7 +282,7 @@ effect.plot<-effects::allEffects(Mod.Scaled)
 plot(effect.plot)
 ```
 
-The marginal effect plots show that the year and population has negative effect on average medals, wehereas GDP has quadratic effect.
+The marginal effect plots show that the year and population has negative effect on average medals, whereas GDP has quadratic effect.
 
 #### Estimate Marginal means
 
@@ -314,7 +325,11 @@ linearHypothesis(Mod, names(coef(Mod))[9:12])
 
 ANOVA/F test suggests that the full model is has significant lower RSS, means natural spline of population has non-linear effect on log transformed weighted average medal.
 
-## 
+**BMB**: this is easier:
+
+```{r}
+car::Anova(Mod)
+```
 
 ## **Question 2: contrasts**
 
@@ -378,6 +393,8 @@ cat("C-inverse matrix","\n")
 Contrast.mat<-fractions(solve(C))
 Contrast.mat[,-1]
 ```
+
+**BMB**: you never showed how to fit the linear model with these contrasts???
 
 ## **Question 3: simulations to evaluate the effects of model misspecification**
 
@@ -518,3 +535,8 @@ ggplot(results, aes(x=n, y=Coverage)) +
 ```
 
 The coverage is highly oscillating irrespective of df.
+
+**BMB**: yes, but also very close to the nominal value (0.95), in fact as close as we could expect from what are effectively binomial samples.
+
+You don't need a mark for this, but I would give it 9/10 (you missed part of the point in Q2).
+
